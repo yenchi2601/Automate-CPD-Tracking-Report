@@ -11,6 +11,8 @@ from email.message import EmailMessage
 import logging
 from collections import defaultdict
 import tempfile
+import openpyxl
+from openpyxl.utils import get_column_letter
 # Load .env for credentials
 load_dotenv()
 
@@ -75,14 +77,29 @@ with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
         ) as conn:
             df = pd.read_sql_query(query, conn)
 
+        # Beautify column headers (e.g. visit_number → Visit Number)
+        df.columns = [col.replace("_", " ").title() for col in df.columns]
+
         # Group by name and write each group to the zip
-        for name, data in df.groupby(group_column):
+        for name, data in df.groupby(group_column.replace("_", " ").title()):
             safe_name = name.replace("/", "-").replace("\\", "-")
             filename = f"{subfolder}/{safe_name} - {suffix}.xlsx"
 
             with io.BytesIO() as excel_buffer:
                 with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                    data.to_excel(writer, index=False, sheet_name='All Data')
+                    sheet_name = 'All Data'
+                    data.to_excel(writer, index=False, sheet_name=sheet_name)
+
+                    # --- Auto-adjust column widths ---
+                    worksheet = writer.sheets[sheet_name]
+                    for i, col in enumerate(data.columns, 1):
+                        max_length = max(
+                            data[col].astype(str).map(len).max(),
+                            len(col)
+                        ) + 2  # padding
+                        worksheet.column_dimensions[get_column_letter(i)].width = max_length
+                    # --- End column width adjustment ---
+
                 zipf.writestr(filename, excel_buffer.getvalue())
 
     # CPD SQL
@@ -262,10 +279,10 @@ html_body = f"""
     </head>
     <body>
         <p>Hi,</p>
-        <p>This is an automated email from...</p>
+        <p>This is an automated email from the Data Team related to regular CPD, US FNA interventional procedures and trial related work if relevant.</p>
         <p><b>Please find attached the file relating to CPD Period:</b> {start_date.date()} to {end_date.date()}</p>
-        <p>If you have any questions or need further assistance, please feel free to contact via Teams or email.</p>
-        <p>Regards,<br>ABC</p>
+        <p>If you have any questions or need further assistance, please feel free to contact the Cathy Lunnay or Data Team via Teams or email.</p>
+        <p>Regards,<br>Data Team</p>
     </body>
     </html>
 """
